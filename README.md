@@ -7,7 +7,7 @@ El Indicador arrojará, a la vez, los niveles de precariedad: Ninguna (0 dim.) |
 
 El procesamiento de un Trimestre y Año solicitado, arroja:
 
-# A.- Informe preliminar. Análisis exploratorio sobre los ocupados del período, luego cargar los microdatos de la EPH:
+# A.- Informe preliminar. Análisis exploratorio sobre los ocupados del período (microdatos EPH, trimestre año):
     - ocupados totales
     - por categoría ocupacional
     - por sexo
