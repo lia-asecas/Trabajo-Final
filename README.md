@@ -7,7 +7,7 @@ El Indicador arrojará, a la vez, los niveles de precariedad: Ninguna (0 dim.) |
 
 El procesamiento de un Trimestre y Año solicitado, arroja:
 
-# A.- Informe de análisis exploratorio sobre los ocupados del período, luego cargar los microdatos de la EPH:
+# A.- Informe preliminar. Análisis exploratorio sobre los ocupados del período, luego cargar los microdatos de la EPH:
     - ocupados totales
     - por categoría ocupacional
     - por sexo
@@ -18,7 +18,8 @@ El procesamiento de un Trimestre y Año solicitado, arroja:
 # B.- Asignación de Precariedad por Ingresos, Jornada y/o Contrato a cada Ocupado, del mismo Trimestre de cada año (desde 2016 en adelante)
     - Precariedad por Ingresos: 
       ocupados que hayan declarado su Ingreso de la Ocupación principal (P21>=0) y sea menor al valor 
-      del Adulto Equivalente calculado por la Junta Interna de ATE-INDEC en la Canasta Familiar de Ingresos Mínimos.
+      del Adulto Equivalente calculado por la Junta Interna de ATE-INDEC en la 
+      Canasta Familiar de Ingresos Mínimos.
       
     - Precariedad por Jornada: 
     
