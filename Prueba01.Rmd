@@ -1,0 +1,397 @@
+---
+title: "Indice de Precarización Laboral"
+output: html_document
+date: "2026-07-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+options(scipen = 999)
+```
+
+Cálcula el Indice de Precarización laboral en tres dimensiones, sobre los microdatos EPH-Indec.
+Toma el último trimestre publicado, y calcula el indicador para el mismo trimestre desde el año 2016 a la fecha.
+
+# 1. Librerias, constantes, parametros, formatos
+
+```{r 1-librerias, echo=FALSE}
+library(eph)
+library(data.table)
+library(tidyverse)
+library(purrr)
+library(openxlsx)
+library(janitor)
+library(kableExtra)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(stringr)
+
+COLS_TEXTO            <- c("CALIFICACION", "caes_eph_label", "cno_label", "CODUSU")
+COLS_FACTOR_PRESERVAR <- "indice_precariedad_cat"
+
+PALETA_PREC <- c(
+  "Ninguna" = "#2ecc71",
+  "Baja"    = "#f1c40f",
+  "Media"   = "#e67e22",
+  "Alta"    = "#e74c3c"
+)
+
+PALETA_COMP <- c(
+  "Ingresos"  = "#3498db",
+  "Jornada"   = "#9b59b6",
+  "Contrato"  = "#e74c3c"
+)
+
+umbrales_cbt <- c(
+  "2017" =   8376.86,
+  "2018" =  12753.85,
+  "2019" =  20026.58,
+  "2020" =  27699.03,
+  "2021" =  39999.35,
+  "2022" =  73589.64,
+  "2023" = 250068.28,
+  "2024" = 500701.94,
+  "2025" = 691540.45
+)
+
+anios <- 2023:2025
+trim <- 4
+
+orden_educ <- c(
+  "Sin instruccion/Primaria incompleta",
+  "Primaria completa/Secundaria incompleta",
+  "Secundaria completa/Superior incompleta",
+  "Superior/Universitario completo"
+)
+
+orden_edad <- c("14-29", "30-64", "65+")
+
+fmt_enteros <- function(x) {
+  number(x,
+         big.mark = ".",
+         decimal.mark = ",",
+         accuracy = 1)
+}
+```
+
+# 2. Descarga bases (y guarda CSV reducidos en /bases)
+
+```{r 2-descargas, echo=FALSE}
+dir.create("bases", showWarnings = FALSE)
+
+# Variables que queremos guardar (versión reducida original)
+vars_guardar <- c(
+  "ANO4", "TRIMESTRE", "OPER", "CODUSU",
+  "PONDERA", "PONDIIO", "P21",
+  "INTENSI", "PP03I", "PP03C",
+  "PP07H", "PP07C", "PP07G1", "PP07G2", "PP07G3", "PP07G4",
+  "CAT_OCUP", "ESTADO", "PP04D_COD",
+  "CALIFICACION", "caes_eph_label",
+  "CH04", "REGION", "CH06", "NIVEL_ED"
+)
+
+bases_raw <- map(as.character(anios), function(a) {
+  message("Descargando T", trim, " ", a)
+  df <- get_microdata(year = as.integer(a), trimester = trim, type = "individual", vars = "all")
+  df <- organize_cno(df)
+  df <- organize_caes(df)
+
+  vars_presente <- intersect(vars_guardar, names(df))
+  df_sub <- df %>% select(all_of(vars_presente))
+  fname <- file.path("bases", paste0("individual_", a, "_T", trim, ".csv"))
+  write.csv(df_sub, fname, row.names = FALSE)
+  message("Guardado: ", fname, " (", nrow(df_sub), " filas, ", length(vars_presente), " columnas)")
+  df
+})
+names(bases_raw) <- as.character(anios)
+```
+
+# 3. Función para calcular índice (devuelve base reducida y validaciones)
+
+```{r 3-control, echo=FALSE}
+aplicar_indice <- function(df, umbral_ingreso, anio_label = "") {
+  setDT(df)
+
+  # Normalizar PP04D_COD a 5 dígitos si existe (preservando NA)
+  if ("PP04D_COD" %in% names(df)) {
+    df[, PP04D_COD := as.character(PP04D_COD)]
+    df[, PP04D_COD := ifelse(is.na(PP04D_COD), NA_character_, stringr::str_pad(PP04D_COD, width = 5, side = "left", pad = "0"))]
+  }
+
+  validaciones <- data.frame(
+    anio = character(),
+    concepto = character(),
+    valor = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  poblacion_total <- if ("PONDERA" %in% names(df)) sum(df$PONDERA, na.rm = TRUE) else NA_real_
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Población TOTAL", valor = poblacion_total))
+
+  ocup <- if ("ESTADO" %in% names(df)) df[ESTADO == 1, ] else df[0]
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Población Ocupada", valor = sum(ocup$PONDERA, na.rm = TRUE)))
+
+  ocup_tb <- as_tibble(ocup)
+
+  if ("CAT_OCUP" %in% names(ocup_tb)) {
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Patrones", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 1], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Cta.Propia", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 2], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Asalariados", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 3], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - TFSR", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 4], na.rm = TRUE)))
+  }
+
+  # Filtrado de nuestro universo: excluir patrones y FF.SS (48/49)
+  nuestros <- ocup_tb %>%
+    filter((is.na(CAT_OCUP) | CAT_OCUP != 1)) %>%
+    filter(is.na(PP04D_COD) | !(substr(PP04D_COD, 1, 2) %in% c("48", "49")))
+
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Nuestros Ocup (PONDERA)", valor = sum(nuestros$PONDERA, na.rm = TRUE)))
+  if ("PONDIIO" %in% names(nuestros)) {
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Nuestros Ocup (PONDIIO)", valor = sum(nuestros$PONDIIO, na.rm = TRUE)))
+  }
+
+  # Construcción del índice sobre 'nuestros'
+  base <- nuestros %>%
+    mutate(
+      precario_ingreso_num = case_when(
+        is.na(P21) | P21 == -9           ~ NA_real_,
+        as.numeric(P21) < umbral_ingreso ~ 1,
+        TRUE                             ~ 0
+      ),
+      precario_jornada_num = case_when(
+        is.na(INTENSI) | is.na(PP03I) | is.na(PP03C) ~ NA_real_,
+        INTENSI == 1 | INTENSI == 3                   ~ 1,
+        INTENSI == 2 & PP03I == 1                     ~ 1,
+        PP03C == 2                                    ~ 1,
+        TRUE                                          ~ 0
+      ),
+      precario_contrato_num = case_when(
+        is.na(PP07H) | is.na(PP07C) | is.na(CAT_OCUP) | is.na(ESTADO) ~ NA_real_,
+        PP07H == 2 ~ 1,
+        PP07H == 1 & (is.na(PP07G1) | PP07G1 == 2 |
+                        is.na(PP07G2) | PP07G2 == 2 |
+                        is.na(PP07G3) | PP07G3 == 2 |
+                        is.na(PP07G4) | PP07G4 == 2) ~ 1,
+        PP07H == 1 & PP07C == 1 ~ 1,
+        CAT_OCUP == 4 ~ 1,
+        CAT_OCUP == 2 & (is.na(CALIFICACION) | CALIFICACION != "Profesionales") ~ 1,
+        TRUE ~ 0
+      )
+    )
+
+  base <- base %>%
+    mutate(
+      indice_incompleto = is.na(precario_jornada_num) | is.na(precario_contrato_num),
+      num_dimensiones = case_when(
+        indice_incompleto                    ~ NA_real_,
+        !is.na(precario_ingreso_num)         ~ (precario_ingreso_num + precario_jornada_num + precario_contrato_num),
+        TRUE                                 ~ (precario_jornada_num + precario_contrato_num)
+      ),
+      indice_precariedad_cat = factor(
+        case_when(
+          is.na(num_dimensiones) ~ NA_character_,
+          num_dimensiones == 0   ~ "Ninguna",
+          num_dimensiones == 1   ~ "Baja",
+          num_dimensiones == 2   ~ "Media",
+          num_dimensiones == 3   ~ "Alta"
+        ),
+        levels  = c("Ninguna", "Baja", "Media", "Alta"),
+        ordered = TRUE
+      )
+    )
+
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice Completo", valor = sum(base$PONDERA[!base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice incompleto", valor = sum(base$PONDERA[base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Baja (1) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 1], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Moderada (2) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 2], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Alta (3) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 3], na.rm = TRUE)))
+
+  # Seleccionar solo las columnas que usamos downstream (reducción - evita inconsistencias de tipo)
+  cols_keep <- c(
+    "CODUSU", "ANO4", "TRIMESTRE", "PONDERA", "PONDIIO", "P21",
+    "precario_ingreso_num", "precario_jornada_num", "precario_contrato_num",
+    "num_dimensiones", "indice_precariedad_cat",
+    "CH04", "REGION", "CH06", "NIVEL_ED",
+    "caes_eph_label", "CALIFICACION", "CAT_OCUP", "ESTADO", "PP04D_COD"
+  )
+
+  base_reducida <- base %>% select(any_of(cols_keep)) %>% mutate(ANO4 = ifelse(is.na(ANO4), as.integer(anio_label), ANO4))
+
+  # Forzar tipos coherentes para las columnas que usamos (evita bind_rows fallando)
+  base_reducida <- base_reducida %>%
+    mutate(
+      CODUSU = as.character(CODUSU),
+      ANO4 = as.integer(ANO4),
+      TRIMESTRE = as.integer(TRIMESTRE),
+      PONDERA = as.numeric(PONDERA),
+      PONDIIO = as.numeric(PONDIIO),
+      P21 = suppressWarnings(as.numeric(as.character(P21))),
+      precario_ingreso_num = as.integer(precario_ingreso_num),
+      precario_jornada_num = as.integer(precario_jornada_num),
+      precario_contrato_num = as.integer(precario_contrato_num),
+      num_dimensiones = as.integer(num_dimensiones),
+      indice_precariedad_cat = as.factor(indice_precariedad_cat),
+      CH04 = suppressWarnings(as.integer(CH04)),
+      REGION = suppressWarnings(as.integer(REGION)),
+      CH06 = suppressWarnings(as.integer(CH06)),
+      NIVEL_ED = suppressWarnings(as.integer(NIVEL_ED)),
+      caes_eph_label = as.character(caes_eph_label),
+      CALIFICACION = as.character(CALIFICACION),
+      CAT_OCUP = suppressWarnings(as.integer(CAT_OCUP)),
+      ESTADO = suppressWarnings(as.integer(ESTADO)),
+      PP04D_COD = as.character(PP04D_COD)
+    )
+
+  list(
+    base = base_reducida,
+    validaciones = validaciones
+  )
+}
+```
+
+# 4. Aplico la función a todas las bases, guardo validaciones y alineo tipos finales
+
+```{r 4-indice, echo=FALSE}
+validaciones_todas <- list()
+
+bases_procesadas <- imap(bases_raw, function(df, anio) {
+  umbral <- umbrales_cbt[[anio]]
+  res <- aplicar_indice(df, umbral_ingreso = umbral, anio_label = anio)
+  validaciones_todas[[anio]] <<- res$validaciones
+  res$base
+})
+
+# Asegurar que todas las tablas procesadas tienen las mismas columnas y tipos (según cols_keep)
+all_cols <- unique(unlist(map(bases_procesadas, names)))
+# Definir tipos objetivo para las columnas que guardamos (coherente con aplicar_indice)
+tipo_objetivo <- list(
+  CODUSU = "character",
+  ANO4 = "integer",
+  TRIMESTRE = "integer",
+  PONDERA = "numeric",
+  PONDIIO = "numeric",
+  P21 = "numeric",
+  precario_ingreso_num = "integer",
+  precario_jornada_num = "integer",
+  precario_contrato_num = "integer",
+  num_dimensiones = "integer",
+  indice_precariedad_cat = "character",
+  CH04 = "integer",
+  REGION = "integer",
+  CH06 = "integer",
+  NIVEL_ED = "integer",
+  caes_eph_label = "character",
+  CALIFICACION = "character",
+  CAT_OCUP = "integer",
+  ESTADO = "integer",
+  PP04D_COD = "character"
+)
+
+bases_alineadas <- map(bases_procesadas, function(df) {
+  for (col in names(tipo_objetivo)) {
+    target <- tipo_objetivo[[col]]
+    if (!(col %in% names(df))) {
+      df[[col]] <- switch(target,
+                          character = NA_character_,
+                          numeric   = NA_real_,
+                          integer   = NA_integer_,
+                          logical   = NA,
+                          NA_character_)
+    } else {
+      if (target == "character") df[[col]] <- as.character(df[[col]])
+      if (target == "numeric") df[[col]] <- suppressWarnings(as.numeric(as.character(df[[col]])))
+      if (target == "integer") df[[col]] <- suppressWarnings(as.integer(as.numeric(as.character(df[[col]]))))
+    }
+  }
+  # conservar solo columnas objetivo en orden
+  df[names(tipo_objetivo)]
+})
+
+# Combinar sin errores de tipos
+resultados_todos <- bind_rows(bases_alineadas, .id = "anio") %>%
+  mutate(ANO4 = as.integer(ifelse(!is.na(ANO4), ANO4, as.integer(anio))))
+
+# Guardar versiones procesadas reducidas por año (opcional)
+walk2(bases_alineadas, names(bases_alineadas), function(d, anio) {
+  fname <- file.path("bases", paste0("individual_procesada_", anio, "_T", trim, ".csv"))
+  write.csv(d, fname, row.names = FALSE)
+  message("Guardado procesada: ", fname)
+})
+```
+
+# 5. Tabla de control (validaciones)
+
+```{r 5-validaciones, echo=FALSE}
+tabla_validaciones_final <- bind_rows(validaciones_todas) %>%
+  mutate(valor = as.numeric(valor))
+
+tabla_validaciones_final %>%
+  pivot_wider(
+    names_from = anio,
+    values_from = valor,
+    names_sort = TRUE
+  ) %>%
+  mutate(across(where(is.numeric), fmt_enteros)) %>%
+  knitr::kable(format = "html") %>%
+  kableExtra::kable_styling(full_width = FALSE)
+```
+
+# 6. Resultados: tablas y gráficos (ejemplos)
+
+```{r 6-resultados, echo=FALSE}
+resultados_todos <- resultados_todos %>%
+  mutate(
+    genero = case_when(CH04 == 1 ~ "Varon", CH04 == 2 ~ "Mujer", TRUE ~ NA_character_),
+    region_nombre = case_when(REGION == 1  ~ "Gran Buenos Aires",
+                              REGION == 40 ~ "NOA",
+                              REGION == 41 ~ "NEA",
+                              REGION == 42 ~ "Cuyo",
+                              REGION == 43 ~ "Pampeana",
+                              REGION == 44 ~ "Patagonia",
+                              TRUE         ~ NA_character_),
+    grupo_etario = case_when(CH06 >= 14 & CH06 <= 29 ~ "14-29",
+                             CH06 >= 30 & CH06 <= 64 ~ "30-64",
+                             CH06 >= 65              ~ "65+",
+                             TRUE                    ~ NA_character_),
+    grupo_etario = factor(grupo_etario, levels = orden_edad, ordered = TRUE),
+    nivel_educativo = case_when(
+      NIVEL_ED %in% c(1,2) ~ "Sin instruccion/Primaria incompleta",
+      NIVEL_ED %in% c(3,4) ~ "Primaria completa/Secundaria incompleta",
+      NIVEL_ED %in% c(5,6) ~ "Secundaria completa/Superior incompleta",
+      NIVEL_ED == 7        ~ "Superior/Universitario completo",
+      TRUE                 ~ NA_character_
+    ),
+    nivel_educativo = factor(nivel_educativo, levels = orden_educ, ordered = TRUE)
+  )
+
+ultimo_anio <- max(resultados_todos$ANO4, na.rm = TRUE)
+base_ultimo <- resultados_todos %>% filter(ANO4 == ultimo_anio)
+base_ocupados <- base_ultimo %>% filter(ESTADO == 1)
+
+# Funciones auxiliares (simplificadas)
+tabla_indice <- function(data, var_corte) {
+  data %>%
+    filter(!is.na({{ var_corte }}), !is.na(indice_precariedad_cat)) %>%
+    group_by({{ var_corte }}, indice_precariedad_cat) %>%
+    summarise(total_pond = sum(PONDERA, na.rm = TRUE), .groups = "drop") %>%
+    group_by({{ var_corte }}) %>%
+    mutate(pct = round(total_pond / sum(total_pond) * 100, 1)) %>%
+    ungroup() %>%
+    select(-total_pond) %>%
+    complete(
+      {{ var_corte }},
+      indice_precariedad_cat = factor(c("Ninguna", "Baja", "Media", "Alta"), levels = c("Ninguna", "Baja", "Media", "Alta"), ordered = TRUE),
+      fill = list(pct = 0)
+    ) %>%
+    pivot_wider(names_from = indice_precariedad_cat, values_from = pct, values_fill = 0) %>%
+    select({{ var_corte }}, Ninguna, Baja, Media, Alta)
+}
+
+# Ejemplo: Índice por género
+tabla_indice(base_ultimo, genero) %>% rename(Genero = genero) %>%
+  kable(format = "html", caption = paste0("INDICE DE PRECARIEDAD POR GENERO — T", trim, " ", ultimo_anio, " (%)")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+Fin del documento.
