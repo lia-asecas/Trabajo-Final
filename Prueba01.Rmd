@@ -6,6 +6,7 @@ date: "2026-07-08"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+t_inicio <- Sys.time()
 options(scipen = 999)
 ```
 
@@ -318,6 +319,32 @@ walk2(bases_alineadas, names(bases_alineadas), function(d, anio) {
   write.csv(d, fname, row.names = FALSE)
   message("Guardado procesada: ", fname)
 })
+
+# ---------- LOG DE EJECUCIÓN (archivo en carpeta 'log') ----------
+
+t_fin <- Sys.time()
+runtime_secs <- as.numeric(difftime(t_fin, t_inicio, units = "secs"))
+
+log_row <- tibble::tibble(
+  timestamp         = format(t_fin, "%Y-%m-%d %H:%M:%S"),
+  user              = Sys.info()[["user"]],
+  anios_proc        = paste(sort(unique(resultados_todos$ANO4)), collapse = ";"),
+  trimestre         = trim,
+  archivos_creados  = paste0(list.files("bases", pattern = paste0("_T", trim, "\\.csv$"), full.names = FALSE), collapse = ";"),
+  filas_total       = sum(sapply(bases_alineadas, nrow)),
+  runtime_secs      = round(runtime_secs, 1),
+  status            = "OK",
+  notas             = NA_character_
+)
+
+log_file <- file.path("log", "execution_log.csv")
+if (!file.exists(log_file)) {
+  data.table::fwrite(log_row, log_file)
+} else {
+  data.table::fwrite(log_row, log_file, append = TRUE)
+}
+message("Registro de ejecución guardado en: ", log_file)
+# -----------------------------------------------------------------
 ```
 
 # 5. Tabla de control (validaciones)
