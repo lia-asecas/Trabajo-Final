@@ -1,0 +1,494 @@
+---
+title: "Indice de Precarización Laboral"
+subtitle: "Observatorio de les Trabajadores - La Izquierda Diario"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+params:
+  anio: 2026
+  trim: 1
+output:
+  html_document:
+    toc: true
+    toc_float: true
+  word_document:
+    toc: true
+    reference_docx: "../plantillas/informe_indice.docx"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+t_inicio <- Sys.time()
+options(scipen = 999)
+
+anios <- 2017:params$anio
+trim  <- params$trim
+
+```
+
+
+Calcula el Indice de precarización laboral sobre los microdatos EPH-Indec para un período y arma la serie desde 2017 para el mismo trimestre.
+
+<hr>
+
+**Año:** `r max(anios)` <br>
+**Trimestre:** `r trim`
+
+<hr>
+
+```{r 1-librerias, echo=FALSE}
+
+#### 1. Librerias, constantes, parametros, formatos
+
+library(eph)
+library(data.table)
+library(tidyverse)
+library(purrr)
+library(openxlsx)
+library(readxl)
+library(janitor)
+library(kableExtra)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(stringr)
+library(dplyr)
+library(bslib)
+
+source("Formatos.R")
+source("funciones_indice.R")
+source("02_calcular_indice.R")
+
+umbrales <- read_excel("../bases/umbrales.xlsx")
+
+umbrales_cbt <- umbrales %>%
+  filter(TRIM == .env$trim) %>%
+  arrange(ANIO) %>%
+  { setNames(.$ADULTO_EQUIV, as.character(.$ANIO)) }
+
+
+```
+
+
+
+```{r 2-descargas, echo=FALSE}
+
+#### 2. Estructura general del proceso de cálculo y salidas
+
+validaciones_todas <- list()
+bases_procesadas   <- list()
+resumenes_todos    <- list()
+
+for (anio in anios) {
+  
+  umbral <- umbrales_cbt[[as.character(anio)]]
+  
+  df <- get_microdata(year = as.integer(anio), trimester = trim, type = "individual", vars = "all")
+
+  df <- organize_cno(df)
+  df <- organize_caes(df)
+  
+  res <- aplicar_indice(df, umbral_ingreso = umbral, anio_label = anio, trim = trim)
+  
+  validaciones_todas[[as.character(anio)]] <- res$validaciones
+  bases_procesadas[[as.character(anio)]]   <- res$base
+  resumenes_todos[[as.character(anio)]]    <- res$resumen
+  
+  rm(df)
+  rm(res)
+  gc(FALSE)
+  
+}
+
+```
+
+
+```{r 3-Salidas, echo=FALSE}
+
+# Combino las bases ya procesadas. Saco Totales de Control y Guardo el log. 
+
+resultados_todos <- bind_rows(bases_procesadas, .id = "anio") %>%
+  mutate(ANO4 = as.integer(ifelse(!is.na(ANO4), ANO4, as.integer(anio))))
+resumen_ultimo   <- resumenes_todos[[as.character(max(anios))]]
+
+# Log de Ejecución (archivo Excel incremental en carpeta 'log') ----------
+
+t_fin <- Sys.time()
+runtime_secs <- as.numeric(difftime(t_fin, t_inicio, units = "secs"))
+
+log_row <- tibble::tibble(
+  fecha             = format(t_fin, "%Y-%m-%d"),
+  hora              = format(t_fin, "%H:%M:%S"),
+  user              = Sys.info()[["user"]],
+  anio_ult          = max(anios),
+  anio_dde          = min(anios),
+  trimestre         = trim,
+  umbral            = umbrales_cbt[[as.character(max(anios))]],
+  nivel_grl         = resumen_ultimo$nivel_gral,
+  nivel_v           = resumen_ultimo$nivel_v,
+  nivel_m           = resumen_ultimo$nivel_m,
+  pre_i             = resumen_ultimo$pre_i,
+  pre_j             = resumen_ultimo$pre_j,
+  pre_c             = resumen_ultimo$pre_c,
+  runtime_secs      = round(runtime_secs, 1),
+  status            = "OK"
+)
+
+dir.create("../log", showWarnings = FALSE)
+log_file <- file.path("../log", "ejecucion_log.xlsx")
+
+if (!file.exists(log_file)) {
+  log_tabla <- log_row
+} else {
+  log_previo <- openxlsx::read.xlsx(log_file, detectDates = FALSE)
+  log_tabla  <- dplyr::bind_rows(log_previo, log_row)
+}
+
+openxlsx::write.xlsx(log_tabla, log_file, overwrite = TRUE)
+```
+
+
+### **Totales de Control**
+
+```{r 5-validaciones, echo=FALSE}
+
+#### 5. Tabla de control (validaciones)
+
+tabla_validaciones_final <- bind_rows(validaciones_todas) %>%
+  mutate(valor = as.numeric(valor))
+
+tabla_validaciones_wide <- tabla_validaciones_final %>%
+  pivot_wider(
+    names_from = anio,
+    values_from = valor,
+    names_sort = TRUE
+  ) %>%
+  mutate(across(where(is.numeric), fmt_mixto))
+
+if (knitr::is_html_output()) {
+  tabla_validaciones_wide %>%
+    knitr::kable(
+      format = "html",
+      col.names = c("Totales", names(tabla_validaciones_wide)[-1]),
+      align = c("l", rep("r", ncol(tabla_validaciones_wide) - 1))
+    ) %>%
+    kableExtra::kable_styling(full_width = FALSE, font_size = 11, position = "left")
+} else {
+  tabla_validaciones_wide %>%
+    knitr::kable(
+      format = "pandoc",
+      col.names = c("Totales", names(tabla_validaciones_wide)[-1]),
+      align = c("l", rep("r", ncol(tabla_validaciones_wide) - 1))
+    )
+}
+
+```
+
+<br>
+
+### **Resultados: tablas y gráficos**
+
+```{r 6-resultados, echo=FALSE}
+
+#### 6. Resultados: tablas y gráficos
+
+resultados_todos <- resultados_todos %>%
+  construir_variables_derivadas(orden_edad = orden_edad, orden_educ = orden_educ)
+
+ultimo_anio   <- max(resultados_todos$ANO4, na.rm = TRUE)
+base_ultimo   <- resultados_todos %>% filter(ANO4 == ultimo_anio)
+base_ocupados <- base_ultimo %>% filter(ESTADO == 1)
+fuente_txt    <- "Fuente: Elaboración propia en base a EPH-Indec."
+tit_serie     <- paste0(trim, "° trimestre. ", min(anios), "-", max(anios),".")
+tit_per       <- paste0(trim, "° trimestre. ", max(anios),".")
+
+
+kable_prec <- function(df, titulo, fuente = NULL, font_size = 13, formato = NULL) {
+
+  if (nrow(df) == 0) {
+    message("AVISO: tabla vacia para '", titulo, "' — se omite.")
+    return(invisible(NULL))
+  }
+  
+  if (!is.null(formato) && formato == "enteros") {
+    df <- df %>% mutate(across(where(is.numeric), fmt_enteros))
+  }
+  
+  if (knitr::is_html_output()) {
+    k <- df %>%
+      kable(
+        format  = "html",
+        caption = titulo,
+        align   = c("l", rep("r", ncol(df) - 1))
+      ) %>%
+      kable_styling(
+        bootstrap_options = c("striped", "hover", "condensed"),
+        full_width = TRUE,
+        font_size  = font_size
+      ) %>%
+      row_spec(0, bold = TRUE, color = "white", background = "#2c3e50") %>%
+      column_spec(1, bold = TRUE)
+
+    if (!is.null(fuente)) k <- k %>% footnote(general = fuente, general_title = "")
+
+  } else {
+    # Word: tabla simple (pandoc), el estilo lo da reference_docx
+    k <- df %>%
+      kable(
+        format  = "pandoc",
+        caption = titulo,
+        align   = c("l", rep("r", ncol(df) - 1))
+      )
+    if (!is.null(fuente)) {
+      k <- knitr::asis_output(paste0(paste(k, collapse = "\n"), "\n\n*", fuente, "*\n"))
+    }
+  }
+  k
+}
+
+
+evolucion_indice <- calcular_evolucion_indice(resultados_todos)
+
+tabla_evolucion <- evolucion_indice %>%
+  select(ANO4, indice_precariedad_cat, pct) %>%
+  pivot_wider(names_from = ANO4, values_from = pct, names_sort = TRUE) %>%
+  arrange(indice_precariedad_cat) %>%
+  rename(`Nivel de precariedad` = indice_precariedad_cat)
+
+kable_prec(tabla_evolucion,
+           paste0("Evolución del indice de precariedad laboral — ", tit_serie, " (%)"),
+           fuente = nota_indice)
+
+grafico_evolucion_indice(
+  evolucion_indice, anios,
+  fuente_txt = fuente_txt,
+  titulo = paste0("Evolución del indice de precariedad laboral — ", tit_serie)
+)
+
+# -----------------------------------------------------------------------------
+# 6B. EVOLUCION DE COMPONENTES
+# -----------------------------------------------------------------------------
+evolucion_componentes <- calcular_evolucion_componentes(resultados_todos)
+
+kable_prec(evolucion_componentes, 
+           paste0("Evolucion de componentes de precariedad laboral", tit_serie, " (%)"),
+           fuente = nota_componentes)
+
+grafico_evolucion_componentes(
+  resultados_todos, anios,
+  fuente_txt = fuente_txt,
+  titulo = paste0("Evolucion de componentes de precariedad laboral — ", tit_serie)
+)
+
+
+kable_prec(
+  tabla_indice(base_ultimo, genero) %>% rename(Genero = genero),
+  paste0("Indice de precariedad por género — ", tit_per, " (%)"),
+  fuente = nota_indice)
+kable_prec(
+  tabla_indice_abs(base_ultimo, genero) %>% rename(Genero = genero),
+  paste0("Indice de precariedad por género — ", tit_per, " (pob. expandida)"), formato = "enteros")
+kable_prec(
+  tabla_componentes(base_ultimo, genero) %>% rename(Genero = genero),
+  paste0("Componentes de precariedad por género — ", tit_per, " (%)"),
+  fuente = nota_componentes)
+grafico_barras_indice(base_ultimo, genero,
+                      titulo  = paste0("Indice de precariedad por género — ", tit_per),
+                      label_x = "Género",
+                      fuente_txt = fuente_txt)
+
+# -----------------------------------------------------------------------------
+# 6D. REGION
+# -----------------------------------------------------------------------------
+kable_prec(
+  tabla_indice(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
+  paste0("Indice de precariedad por región — ", tit_per, " (%)"),
+  fuente = nota_indice)
+kable_prec(
+  tabla_indice_abs(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
+  paste0("Indice de precariedad por región — ", tit_per, " (pob. expandida)"), formato = "enteros")
+kable_prec(
+  tabla_componentes(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
+  paste0("Componente de precariedad por región — ", tit_per, " (%)"),
+  fuente = nota_componentes)
+grafico_barras_indice(base_ultimo, region_nombre,
+                      titulo    = paste0("Indice de precariedad por región — ", tit_per),
+                      label_x   = "Región",
+                      reordenar = TRUE,
+                      fuente_txt = fuente_txt)
+
+# -----------------------------------------------------------------------------
+# 6E. RAMA DE ACTIVIDAD
+# -----------------------------------------------------------------------------
+kable_prec(
+  tabla_indice(base_ocupados, caes_eph_label) %>% rename(Rama = caes_eph_label),
+  paste0("Indice de precariedad por rama — ", tit_per, " (%)"),
+  fuente = nota_indice, font_size = 11)
+kable_prec(
+  tabla_indice_abs(base_ocupados, caes_eph_label) %>% rename(Rama = caes_eph_label),
+  paste0("Indice de precariedad por rama — ", tit_per, " (pob. expandida)"),
+  font_size = 11, formato = "enteros")
+kable_prec(
+  tabla_componentes(base_ocupados, caes_eph_label) %>% rename(Rama = caes_eph_label),
+  paste0("Componente de precariedad por rama — ", tit_per, " (%)"),
+  fuente = nota_componentes, font_size = 11)
+grafico_barras_indice(base_ocupados, caes_eph_label,
+                      titulo    = paste0("Indice de precariedad por rama — ", tit_per),
+                      label_x   = "Rama",
+                      reordenar = TRUE,
+                      fuente_txt = fuente_txt)
+
+# -----------------------------------------------------------------------------
+# 6Eii.  JERARQUIA
+# -----------------------------------------------------------------------------
+kable_prec(
+  tabla_indice(base_ultimo, JERARQUIA) %>% rename(`Jerarquía` = JERARQUIA),
+  paste0("Indice de precariedad por jerarquía — ", tit_per, " (%)"),
+  fuente = nota_indice, font_size = 11)
+kable_prec(
+  tabla_indice_abs(base_ultimo, JERARQUIA) %>% rename(`Jerarquía` = JERARQUIA),
+  paste0("Indice de precariedad por jerarquía — ", tit_per, " (pob. expandida)"),
+  font_size = 11, formato = "enteros")
+
+
+
+# -----------------------------------------------------------------------------
+# 6F. GRUPO ETARIO
+# -----------------------------------------------------------------------------
+kable_prec(
+  tabla_indice(base_ultimo, grupo_etario) %>%
+    arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  paste0("Indice de precariedad por grupo etario — ", tit_per, " (%)"),
+  fuente = nota_indice)
+kable_prec(
+  tabla_indice_abs(base_ultimo, grupo_etario) %>%
+    arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  paste0("Indice de precariedad por grupo etario — ", tit_per, " (pob. expandida)"), formato = "enteros")
+kable_prec(
+  tabla_componentes(base_ultimo, grupo_etario) %>%
+    arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  paste0("Componenetes de precariedad por grupo etario — ", tit_per, " (%)"),
+  fuente = nota_componentes)
+grafico_barras_indice(base_ultimo, grupo_etario,
+                      titulo  = paste0("Indice de precariedad por grupo etario — ", tit_per),
+                      label_x = "Grupo etario",
+                      fuente_txt = fuente_txt)
+
+# -----------------------------------------------------------------------------
+# 6G. NIVEL EDUCATIVO
+# -----------------------------------------------------------------------------
+kable_prec(
+  tabla_indice(base_ultimo, nivel_educativo) %>%
+    arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  paste0("Indice de precariedad por nivel educativo — ", tit_per, " (%)"),
+  fuente = nota_indice)
+kable_prec(
+  tabla_indice_abs(base_ultimo, nivel_educativo) %>%
+    arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  paste0("Indice de precariedad por nivel educativo — ", tit_per, " (pob. expandida)"), formato = "enteros")
+kable_prec(
+  tabla_componentes(base_ultimo, nivel_educativo) %>%
+    arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  paste0("Componenetes de precariedad por nivel educativo — ", tit_per, " (%)"),
+  fuente = nota_componentes)
+grafico_barras_indice(base_ultimo, nivel_educativo,
+                      titulo  = paste0("Indice de precariedad por nivel educativo — ", tit_per),
+                      label_x = "Nivel educativo",
+                      fuente_txt = fuente_txt)
+
+# -----------------------------------------------------------------------------
+# 6H. CRUCE GENERO x GRUPO ETARIO
+# -----------------------------------------------------------------------------
+base_ultimo %>%
+  filter(!is.na(genero), !is.na(grupo_etario), !is.na(indice_precariedad_cat)) %>%
+  group_by(genero, grupo_etario, indice_precariedad_cat) %>%
+  summarise(total_pond = sum(PONDERA), .groups = "drop") %>%
+  group_by(genero, grupo_etario) %>%
+  mutate(pct = round(total_pond / sum(total_pond) * 100, 1)) %>%
+  ungroup() %>%
+  select(-total_pond) %>%
+  complete(genero, grupo_etario,
+           indice_precariedad_cat = factor(c("Ninguna","Baja","Media","Alta"),
+                                           levels = c("Ninguna","Baja","Media","Alta"),
+                                           ordered = TRUE),
+           fill = list(pct = 0)) %>%
+  pivot_wider(names_from = indice_precariedad_cat, values_from = pct, values_fill = 0) %>%
+  select(genero, grupo_etario, Ninguna, Baja, Media, Alta) %>%
+  arrange(genero, grupo_etario) %>%
+  rename(Genero = genero, `Grupo etario` = grupo_etario) %>%
+  kable_prec(paste0("Indice de precariedad por género y grupo etario — ", tit_per, " (%)"),
+             fuente = nota_indice)
+
+# -----------------------------------------------------------------------------
+# 6I. CRUCE GENERO x NIVEL EDUCATIVO
+# -----------------------------------------------------------------------------
+base_ultimo %>%
+  filter(!is.na(genero), !is.na(nivel_educativo), !is.na(indice_precariedad_cat)) %>%
+  group_by(genero, nivel_educativo, indice_precariedad_cat) %>%
+  summarise(total_pond = sum(PONDERA), .groups = "drop") %>%
+  group_by(genero, nivel_educativo) %>%
+  mutate(pct = round(total_pond / sum(total_pond) * 100, 1)) %>%
+  ungroup() %>%
+  select(-total_pond) %>%
+  complete(genero, nivel_educativo,
+           indice_precariedad_cat = factor(c("Ninguna","Baja","Media","Alta"),
+                                           levels = c("Ninguna","Baja","Media","Alta"),
+                                           ordered = TRUE),
+           fill = list(pct = 0)) %>%
+  pivot_wider(names_from = indice_precariedad_cat, values_from = pct, values_fill = 0) %>%
+  select(genero, nivel_educativo, Ninguna, Baja, Media, Alta) %>%
+  arrange(genero, nivel_educativo) %>%
+  rename(Genero = genero, `Nivel educativo` = nivel_educativo) %>%
+  kable_prec(paste0("Indice de precariedad por género y nivel educativo — ", tit_per, " (%)"),
+             fuente = nota_indice)
+
+```
+
+
+
+```{r 7- Exporta a Excel, echo=FALSE}
+
+#### 7. EXPORTAR A EXCEL
+
+wb_out <- createWorkbook()
+
+sheets <- list(
+  "Indice_evolucion"        = tabla_evolucion,
+  "Componentes_evolucion"   = evolucion_componentes,
+  "Indice_genero"           = tabla_indice(base_ultimo, genero)               %>% rename(Genero = genero),
+  "Indice_genero_abs"       = tabla_indice_abs(base_ultimo, genero)           %>% rename(Genero = genero),
+  "Indice_region"           = tabla_indice(base_ultimo, region_nombre)        %>% rename(Region = region_nombre),
+  "Indice_region_abs"       = tabla_indice_abs(base_ultimo, region_nombre)    %>% rename(Region = region_nombre),
+  "Indice_rama"             = tabla_indice(base_ocupados, caes_eph_label)     %>% rename(Rama = caes_eph_label),
+  "Indice_rama_abs"         = tabla_indice_abs(base_ocupados, caes_eph_label) %>% rename(Rama = caes_eph_label),
+  "Indice_edad"             = tabla_indice(base_ultimo, grupo_etario)         %>% arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  "Indice_edad_abs"         = tabla_indice_abs(base_ultimo, grupo_etario)     %>% arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  "Indice_educacion"        = tabla_indice(base_ultimo, nivel_educativo)      %>% arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  "Indice_educacion_abs"    = tabla_indice_abs(base_ultimo, nivel_educativo)  %>% arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  "Comp_genero"             = tabla_componentes(base_ultimo, genero)          %>% rename(Genero = genero),
+  "Comp_region"             = tabla_componentes(base_ultimo, region_nombre)   %>% rename(Region = region_nombre),
+  "Comp_rama"               = tabla_componentes(base_ocupados, caes_eph_label) %>% rename(Rama = caes_eph_label),
+  "Comp_edad"               = tabla_componentes(base_ultimo, grupo_etario)    %>% arrange(grupo_etario) %>% rename(`Grupo etario` = grupo_etario),
+  "Comp_educacion"          = tabla_componentes(base_ultimo, nivel_educativo) %>% arrange(nivel_educativo) %>% rename(`Nivel educativo` = nivel_educativo),
+  "Umbrales_CBT"            = data.frame(
+    Anio              = as.integer(names(umbrales_cbt)),
+    CBT_ATE_INDEC_dic = unname(umbrales_cbt)
+  )
+)
+
+walk2(names(sheets), sheets, function(nombre, datos) {
+  addWorksheet(wb_out, nombre)
+  writeData(wb_out, nombre, datos)
+})
+
+dir.create("../resultados", showWarnings = FALSE)
+
+fecha_hora   <- format(Sys.time(), "%Y%m%d-%H%M%S")
+archivo_xlsx <- file.path("..", "resultados", paste0("Ind_", max(anios), "_T", trim, ".xlsx"))
+
+saveWorkbook(wb_out, archivo_xlsx, overwrite = TRUE)
+
+
+```
+
+
+Fin del documento.
