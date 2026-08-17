@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 t_inicio <- Sys.time()
 options(scipen = 999)
 
-anios <- 2017:params$anio
+anios <- 2024:params$anio
 trim  <- params$trim
 
 ```

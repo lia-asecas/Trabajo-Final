@@ -86,10 +86,10 @@ ui <- fluidPage(
                            choices = cat_ocup_valores, selected = cat_ocup_valores),
         tags$div(
           style = "max-height:220px; overflow-y:auto; border:1px solid #ddd; padding:6px; border-radius:4px;",
-          checkboxGroupInput("f_ocupacion", "Ocupación (2 primeros dígitos de PP04D_COD):",
+          checkboxGroupInput("f_ocupacion", "Ocupación (PP04D_COD):",
                              choices = ocupacion_valores, selected = ocupacion_valores)
         ),
-        checkboxGroupInput("f_jerarquia", "Jerarquía (3er dígito de PP04D_COD):",
+        checkboxGroupInput("f_jerarquia", "Jerarquía (PP04D_COD):",
                            choices = jerarquia_valores, selected = jerarquia_valores)
       )
     ),

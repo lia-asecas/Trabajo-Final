@@ -27,15 +27,21 @@ aplicar_indice <- function(df, umbral_ingreso, anio_label = "", trim, guardar = 
   ocup_tb <- as_tibble(ocup)
   
   if ("CAT_OCUP" %in% names(ocup_tb)) {
-    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Patrones", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 1], na.rm = TRUE)))
-    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Cta.Propia", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 2], na.rm = TRUE)))
-    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - Asalariados", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 3], na.rm = TRUE)))
-    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Ocupados - TFSR", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 4], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . Patrones", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 1], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . Cta.Propia", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 2], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . Asalariados", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 3], na.rm = TRUE)))
+    validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . TFSR", valor = sum(ocup_tb$PONDERA[ocup_tb$CAT_OCUP == 4], na.rm = TRUE)))
   }
+  
+  # Prueba sin Grupo 0 - substr(PP04D_COD,1,1) == "0"
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . Grupo 0 (no Patrones)", valor = sum(ocup_tb$PONDERA[substr(ocup_tb$PP04D_COD,1,1)=="0" & !ocup_tb$CAT_OCUP==1], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  . FF.AA.", valor = sum(ocup_tb$PONDERA[substr(ocup_tb$PP04D_COD, 1, 2) %in% c("48", "49")], na.rm = TRUE)))
+  
   
   # Filtrado de nuestro universo: excluir patrones y FF.SS (48/49)
   nuestros <- ocup_tb %>%
-    filter((is.na(CAT_OCUP) | CAT_OCUP != 1)) %>%
+     filter(is.na(CAT_OCUP)  | CAT_OCUP != 1) %>%
+    # filter(is.na(PP04D_COD) | substr(PP04D_COD, 1, 1) != "0" ) %>%
     filter(is.na(PP04D_COD) | !(substr(PP04D_COD, 1, 2) %in% c("48", "49")))
   
   validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Nuestros Ocup (PONDERA)", valor = sum(nuestros$PONDERA, na.rm = TRUE)))
@@ -92,14 +98,14 @@ aplicar_indice <- function(df, umbral_ingreso, anio_label = "", trim, guardar = 
   Por_PC <- Pre_C / sum(base$PONDERA, na.rm = TRUE) * 100
   
   validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios (PONDERA)", valor = Por_G))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios Varones", valor = Por_GV))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios Mujeres", valor = Por_GM))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Ingreso (PONDIIO)", valor = Pre_I))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Ingreso %", valor = Por_PI))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Jornada (PONDERA)", valor = Pre_J))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Jornada %", valor = Por_PJ))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Contrato (PONDERA)", valor = Pre_C))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarios por Contrato %", valor = Por_PC))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Varones", valor = Por_GV))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Mujeres", valor = Por_GM))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . por Ingreso (PONDIIO)", valor = Pre_I))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "   . por Ingreso %", valor = Por_PI))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . por Jornada (PONDERA)", valor = Pre_J))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "   . por Jornada %", valor = Por_PJ))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . por Contrato (PONDERA)", valor = Pre_C))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "   . por Contrato %", valor = Por_PC))
   
   base <- base %>%
     mutate(
@@ -122,11 +128,27 @@ aplicar_indice <- function(df, umbral_ingreso, anio_label = "", trim, guardar = 
       )
     )
   
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice Completo", valor = sum(base$PONDERA[!base$indice_incompleto], na.rm = TRUE)))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice incompleto", valor = sum(base$PONDERA[base$indice_incompleto], na.rm = TRUE)))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Baja (1) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 1], na.rm = TRUE)))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Moderada (2) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 2], na.rm = TRUE)))
-  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Precarizacion Alta (3) sobre PONDERA", valor = sum(base$PONDERA[base$num_dimensiones == 3], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice Completo (PONDERA)", valor = sum(base$PONDERA[!base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice incompleto (PONDERA)", valor = sum(base$PONDERA[base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  .Ninguna ", valor = sum(base$PONDERA[base$num_dimensiones == 0], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  .Baja    ", valor = sum(base$PONDERA[base$num_dimensiones == 1], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  .Moderada", valor = sum(base$PONDERA[base$num_dimensiones == 2], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  .Alta    ", valor = sum(base$PONDERA[base$num_dimensiones == 3], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Ninguna  %", valor = sum(base$PONDERA[base$num_dimensiones == 0], na.rm = TRUE)*100/sum(base$PONDERA, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Baja     %", valor = sum(base$PONDERA[base$num_dimensiones == 1], na.rm = TRUE)*100/sum(base$PONDERA, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Moderada %", valor = sum(base$PONDERA[base$num_dimensiones == 2], na.rm = TRUE)*100/sum(base$PONDERA, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = " . Alta     %", valor = sum(base$PONDERA[base$num_dimensiones == 3], na.rm = TRUE)*100/sum(base$PONDERA, na.rm = TRUE)))
+  
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice Completo (PONDIIO)", valor = sum(base$PONDIIO[!base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "Indice incompleto ", valor = sum(base$PONDIIO[base$indice_incompleto], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Ninguna  ", valor = sum(base$PONDIIO[base$num_dimensiones == 0], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Baja     ", valor = sum(base$PONDIIO[base$num_dimensiones == 1], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Moderada ", valor = sum(base$PONDIIO[base$num_dimensiones == 2], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Alta     ", valor = sum(base$PONDIIO[base$num_dimensiones == 3], na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Ninguna  %", valor = sum(base$PONDIIO[base$num_dimensiones == 0], na.rm = TRUE)*100/sum(base$PONDIIO, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Baja     %", valor = sum(base$PONDIIO[base$num_dimensiones == 1], na.rm = TRUE)*100/sum(base$PONDIIO, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Moderada %", valor = sum(base$PONDIIO[base$num_dimensiones == 2], na.rm = TRUE)*100/sum(base$PONDIIO, na.rm = TRUE)))
+  validaciones <- rbind(validaciones, data.frame(anio = anio_label, concepto = "  _ Alta     %", valor = sum(base$PONDIIO[base$num_dimensiones == 3], na.rm = TRUE)*100/sum(base$PONDIIO, na.rm = TRUE)))
   
   # Guardar Base reduciada. 
   # Seleccionar las columnas del CSV (evita inconsistencias de tipo)
