@@ -22,28 +22,72 @@ En los scripts de cálculo e Informes se vuelcan los totales absolutos del perí
 y se desagregan según variables sensibles como Sexo (P02), categoria ocupacion (CAT_OCUP), Edad (P03), nivel educativo, Region, ocupación y Jerarquía en la misma.
 
 ### 3. Script en R:
-- Script01: página HTML que presente al Oservatorio y al Indicador, con el valor (XX%) del indicador y el período calculado (sólo desagregado por sexo) y permita al usuario Ver/Bajar el último informe (en HTML) e ir a una pantalla interactiva que le permita visualizar (filtrar/combinar) el indicador por variables sensibles definidas.
-- Script02: es el que descarga los datos (\bases), realiza el cálculo, registra el log (\log), y almacena las bases resultantes para el Dashboard.
-- Script03: es el que genera el informe en HTML con los resultados del período y la serie (\resultados).
-- Script04: es el que genera el panel interactivo en R-Shiny con los datos procesados.
+- **/scripts/app.R**: una shiny que muestra los resultados del último procesamiento (en tarjetas), la fecha y el período guardados en */log/ejecucion.log*, y habilita botones de acción (*Nuevo Cálculo / Ver Informe / Consultar*)
+- **/scripts/02_actualizar_indice.Rmd**: es un Markdown que saca un html y un docx con los resultados del procesamiento tomando el período (año y trimestre ingresado por pantalla (el botón *Nuevo Cálculo* habilita un popup */apps/nuevo_calculo/app.R* que permite ingresar año y trimestre). Deja 3 resultados: */resultados/Ind_aaaa_Tt.html .docx y .xlsx*.
+- **/scripts/02_calcular_indice.R**: descaga los microdatos de la EPH, toma lo necesario para el cálculo de */bases/umbrales.xlsx*, calcula los indicadores, guarda las bases resultantes reducidas (*/bases/individual_procesada_aaaa_Tt.csv*) para luego poder consultar sobre el .RData guardado, y agrega una línea en */log/ejecucion.log*).
+- **/scripts/Formatos.R** y **funciones_indice.R**: contiene los formatos generales y las funciones necesarias en el script de cálculo, respectivamente.
 
 ### 4. Dashboard: 
-El Script01 es un tablero de control (informa el indicador general y por sexo en el período al que hace referencia) 
-y habilita el llamado al Script04, una app en R Shiny que dispone el conjunto de bases resultantes del último procesamiento para que el ususrio pueda filtrar y combinar variables observando los cambios en el indicador.
+Una shiny para consultar, filtrar y ver cómo cambian los indicadores en forma interactiva está programada en */apps/consultar/app.R*. En la pantalla se puede filtrar la categoría ocupacional, la ocupación y la jerarquía en la cual se emplean los ocupados.
    
 
 <br><br>
 
-La metodología del cálculo del Indicador implica asignar a cada OCupado/a si es precario en cada una de las siguientes **diensiones**:
--Precariedad por Ingresos: Sobre los Ocupados (ESTADO=1) que hayan declarado su Ingreso de la Ocupación principal (P21>=0) y éste sea menor al valor 
-del Adulto Equivalente calculado por la Junta Interna de ATE-INDEC en la Canasta Familiar de Ingresos Mínimos.
-Hay que tener cuenta que aproximadamente el 20-25% de los ocupados no declara su ingreso. La EPH le asigna -9 a la variable P21, y arma un PONDERADOR específico, raclaculando el ponderador de las personas (PONDERA) distribuyendolo entre aquellos ocupados que sí declaran su ingreso, 
-por lo cual se utiliza el ponderador PONDIIO para calcular los niveles de ocupados precarios por ingreso en relacion al total de ocupados.
--Precariedad por Jornada: mmmmmm
--Precariedad por Contrato: mmmm
+## Anexo metodológico
+Índice de Precarización Laboral, elaboración propia en base a Microdatos EPH-INDEC
 
-<br><br>
+### 1. Introducción y marco conceptual
+Tomando como referencia informes nacionales e internacionales basados en estadísticas laborales, el índice de precarización laboral se organiza a partir de tres dimensiones centrales:
 
-Para calcular los niveles o dimensiones de precariedad de cada ocupado/a se presenta la dificultad del 20-25% de quellos que no informan su ingreso,
-por lo cual, ese porcentaje no puede evaluarse en sus 3 dimensiones, no sabremos si su nivel es 0, 1, 2.
+*	Ingresos
+*	Jornada de trabajo
+*	Condiciones de contratación
+
+### 2. Universo de análisis
+El universo de análisis del índice está compuesto por los ocupados relevados por la EPH-INDEC, con las siguientes exclusiones:
+
+*	Patrones (CAT_OCUP = 1).
+*	Fuerzas de seguridad y defensa (PP04D_COD con prefijo 48 o 49)
+
+El universo final comprende, entonces, a los asalariados, cuentapropistas y trabajadores familiares sin remuneración de los 31 aglomerados urbanos excluyendo a los sectores mencionados.
+
+
+### 3. Dimensiones
+
+#### **Dimensión 1**: Precarización por ingresos
+
+Definición: se considera precario por ingresos a todo trabajador cuyo ingreso en la ocupación principal es inferior al valor de la Canasta Básica Total (CBT) para un adulto equivalente.
+**Umbral utilizado**: se utiliza el valor mensual de la CBT para un adulto equivalente publicado por la Junta Interna ATE-INDEC, correspondiente al período de referencia de cada trimestre analizado.
+
+#### **Dimensión 2**: Precarización por jornada laboral
+Definición: se considera precario por jornada laboral a quien trabaja fuera de los parámetros de la jornada laboral legal máxima vigente en Argentina o quien, trabajando a tiempo parcial, demanda más horas de trabajo.
+
+Se toman las siguientes variables de la EPH-INDEC:
+
+* Subocupados demandantes (< 35 hs. sem. y buscan más horas) — INTENSI=1 o INTENSI=3, o (INTENSI=2 & PP03I=1)
+* Sobreocupados (> 45 hs. sem.) — PP03C=2
+* Pluriempleados (más de un empleo) — PP03C=2 sobre ocup.
+
+
+#### **Dimensión 3**: Precarización por condiciones de contratación
+Definición: se considera precario por contrato a quien no accede al trabajo registrado con derechos plenos (lo que la OIT denomina 'trabajo típico'). 
+Se incluyen las siguientes situaciones:
+
+* Asalariados sin descuento jubilatorio  (PP07H=2)
+* Asalariados registrados sin al menos un derecho laboral: vacaciones, aguinaldo, licencia por enfermedad u obra social (PP07G1=2, PP07G2=2, PP07G3=2 o PP07G4=2)
+* Asalariados con contrato a plazo fijo (PP07H=1 & PP07C=1)
+* Trabajadores familiares sin remuneración (CAT_OCUP=4)
+* Cuentapropistas no profesionales (CAT_OCUP=2 & CALIFICACION ≠ 'Profesionales')
+
+### 4.- Construcción del índice compuesto
+Cada trabajador del universo recibe un valor 0 o 1 en cada dimensión. La suma de las tres dimensiones compone el índice, con valores posibles de 0 a 3, que se traducen en cuatro niveles:
+
+* 0 -> No alcanzados por el índice
+* 1 -> Baja
+* 2 -> Media
+* 3 -> Alta
+
+### 5.- Fuente de datos
+Los microdatos utilizados provienen de la Encuesta Permanente de Hogares (EPH) del Instituto Nacional de Estadística y Censos (INDEC).
+Los umbrales de la Canasta Básica Total para adulto equivalente corresponden a los valores publicados por la Junta Interna ATE-INDEC.
 

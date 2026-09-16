@@ -194,7 +194,7 @@ grafico_barras_indice <- function(data, var_x, titulo, subtitulo = NULL,
     ) +
     theme_minimal(base_size = 12) +
     theme(
-      plot.title         = element_text(face = "bold", size = 13),
+      plot.title = element_text(face = "bold", size = 13, color = "#434343"),
       plot.subtitle      = element_text(size = 10, color = "grey40"),
       legend.position    = "bottom",
       panel.grid.major.y = element_blank()
@@ -219,7 +219,7 @@ grafico_evolucion_indice <- function(evolucion_indice, anios, fuente_txt = NULL,
     ) +
     theme_minimal(base_size = 12) +
     theme(
-      plot.title      = element_text(face = "bold", size = 13),
+      plot.title = element_text(face = "bold", size = 13, color = "#434343"),
       legend.position = "bottom"
     )
 }
@@ -256,7 +256,7 @@ grafico_evolucion_componentes <- function(data, anios, fuente_txt = NULL,
     ) +
     theme_minimal(base_size = 12) +
     theme(
-      plot.title       = element_text(face = "bold", size = 13),
+      plot.title = element_text(face = "bold", size = 13, color = "#434343"),
       legend.position  = "bottom",
       panel.grid.minor = element_blank()
     )

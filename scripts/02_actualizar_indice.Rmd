@@ -9,9 +9,8 @@ output:
   html_document:
     toc: true
     toc_float: true
-  word_document:
-    toc: true
-    reference_docx: "../plantillas/informe_indice.docx"
+    toc_depth: 4
+    css: ../www/estilos.css
 ---
 
 
@@ -20,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 t_inicio <- Sys.time()
 options(scipen = 999)
 
-anios <- 2024:params$anio
+anios <- 2017:params$anio
 trim  <- params$trim
 
 ```
@@ -84,6 +83,12 @@ for (anio in anios) {
   
   df <- get_microdata(year = as.integer(anio), trimester = trim, type = "individual", vars = "all")
 
+  message("Año ", anio, ": ", nrow(df), " filas, ", ncol(df), " columnas")
+if (!"PP04D_COD" %in% names(df)) {
+  message("  -> Falta PP04D_COD. Columnas PP04 disponibles: ",
+          paste(grep("^PP04", names(df), value = TRUE), collapse = ", "))
+}
+  
   df <- organize_cno(df)
   df <- organize_caes(df)
   
@@ -147,7 +152,7 @@ openxlsx::write.xlsx(log_tabla, log_file, overwrite = TRUE)
 ```
 
 
-### **Totales de Control**
+### Totales de Control
 
 ```{r 5-validaciones, echo=FALSE}
 
@@ -185,7 +190,7 @@ if (knitr::is_html_output()) {
 
 <br>
 
-### **Resultados: tablas y gráficos**
+### Resultados: tablas y gráficos
 
 ```{r 6-resultados, echo=FALSE}
 
@@ -245,7 +250,13 @@ kable_prec <- function(df, titulo, fuente = NULL, font_size = 13, formato = NULL
   k
 }
 
+```
 
+<br>
+
+#### Evolución del indice de precariedad laboral
+
+```{r 6a-Evolucion, echo=FALSE}
 evolucion_indice <- calcular_evolucion_indice(resultados_todos)
 
 tabla_evolucion <- evolucion_indice %>%
@@ -263,23 +274,34 @@ grafico_evolucion_indice(
   fuente_txt = fuente_txt,
   titulo = paste0("Evolución del indice de precariedad laboral — ", tit_serie)
 )
+```
 
+<br>
+
+#### Evolución de componentes
+
+```{r 6b-Componentes, echo=FALSE}
 # -----------------------------------------------------------------------------
 # 6B. EVOLUCION DE COMPONENTES
 # -----------------------------------------------------------------------------
 evolucion_componentes <- calcular_evolucion_componentes(resultados_todos)
 
 kable_prec(evolucion_componentes, 
-           paste0("Evolucion de componentes de precariedad laboral", tit_serie, " (%)"),
+           paste0("Evolución de componentes de precariedad laboral — ", tit_serie, " (%)"),
            fuente = nota_componentes)
 
 grafico_evolucion_componentes(
   resultados_todos, anios,
   fuente_txt = fuente_txt,
-  titulo = paste0("Evolucion de componentes de precariedad laboral — ", tit_serie)
+  titulo = paste0("Evolución de componentes de precariedad laboral — ", tit_serie)
 )
+```
 
+<br>
 
+#### Indice de precariedad por género
+
+```{r 6c-Género, echo=FALSE}
 kable_prec(
   tabla_indice(base_ultimo, genero) %>% rename(Genero = genero),
   paste0("Indice de precariedad por género — ", tit_per, " (%)"),
@@ -295,7 +317,13 @@ grafico_barras_indice(base_ultimo, genero,
                       titulo  = paste0("Indice de precariedad por género — ", tit_per),
                       label_x = "Género",
                       fuente_txt = fuente_txt)
+```
 
+<br>
+
+#### Indice de precariedad por región
+
+```{r 6d-Región, echo=FALSE}
 # -----------------------------------------------------------------------------
 # 6D. REGION
 # -----------------------------------------------------------------------------
@@ -306,16 +334,23 @@ kable_prec(
 kable_prec(
   tabla_indice_abs(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
   paste0("Indice de precariedad por región — ", tit_per, " (pob. expandida)"), formato = "enteros")
-kable_prec(
-  tabla_componentes(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
-  paste0("Componente de precariedad por región — ", tit_per, " (%)"),
-  fuente = nota_componentes)
+
 grafico_barras_indice(base_ultimo, region_nombre,
                       titulo    = paste0("Indice de precariedad por región — ", tit_per),
                       label_x   = "Región",
                       reordenar = TRUE,
                       fuente_txt = fuente_txt)
+kable_prec(
+  tabla_componentes(base_ultimo, region_nombre) %>% rename(Region = region_nombre),
+  paste0("Componente de precariedad por región — ", tit_per, " (%)"),
+  fuente = nota_componentes)
+```
 
+<br>
+
+#### Indice de precariedad por rama
+
+```{r 6e-Rama, echo=FALSE}
 # -----------------------------------------------------------------------------
 # 6E. RAMA DE ACTIVIDAD
 # -----------------------------------------------------------------------------
@@ -336,9 +371,15 @@ grafico_barras_indice(base_ocupados, caes_eph_label,
                       label_x   = "Rama",
                       reordenar = TRUE,
                       fuente_txt = fuente_txt)
+```
 
+<br>
+
+#### Indice de precariedad por jerarquía
+
+```{r 6f-Jerarquía, echo=FALSE}
 # -----------------------------------------------------------------------------
-# 6Eii.  JERARQUIA
+# 6F.  JERARQUIA
 # -----------------------------------------------------------------------------
 kable_prec(
   tabla_indice(base_ultimo, JERARQUIA) %>% rename(`Jerarquía` = JERARQUIA),
@@ -348,11 +389,15 @@ kable_prec(
   tabla_indice_abs(base_ultimo, JERARQUIA) %>% rename(`Jerarquía` = JERARQUIA),
   paste0("Indice de precariedad por jerarquía — ", tit_per, " (pob. expandida)"),
   font_size = 11, formato = "enteros")
+```
 
+<br>
 
+#### Indice de precariedad por grupo etario
 
+```{r 6G-Grupo etario, echo=FALSE}
 # -----------------------------------------------------------------------------
-# 6F. GRUPO ETARIO
+# 6G. GRUPO ETARIO
 # -----------------------------------------------------------------------------
 kable_prec(
   tabla_indice(base_ultimo, grupo_etario) %>%
@@ -372,9 +417,15 @@ grafico_barras_indice(base_ultimo, grupo_etario,
                       titulo  = paste0("Indice de precariedad por grupo etario — ", tit_per),
                       label_x = "Grupo etario",
                       fuente_txt = fuente_txt)
+```
 
+<br>
+
+#### Indice de precariedad por nivel educativo
+
+```{r 6H-Grupo etario, echo=FALSE}
 # -----------------------------------------------------------------------------
-# 6G. NIVEL EDUCATIVO
+# 6H. NIVEL EDUCATIVO
 # -----------------------------------------------------------------------------
 kable_prec(
   tabla_indice(base_ultimo, nivel_educativo) %>%
@@ -394,9 +445,15 @@ grafico_barras_indice(base_ultimo, nivel_educativo,
                       titulo  = paste0("Indice de precariedad por nivel educativo — ", tit_per),
                       label_x = "Nivel educativo",
                       fuente_txt = fuente_txt)
+```
 
+<br>
+
+#### Indice de precariedad por género y grupo etario
+
+```{r 6I-Genero y Grupo etario, echo=FALSE}
 # -----------------------------------------------------------------------------
-# 6H. CRUCE GENERO x GRUPO ETARIO
+# 6I. CRUCE GENERO x GRUPO ETARIO
 # -----------------------------------------------------------------------------
 base_ultimo %>%
   filter(!is.na(genero), !is.na(grupo_etario), !is.na(indice_precariedad_cat)) %>%
@@ -417,9 +474,15 @@ base_ultimo %>%
   rename(Genero = genero, `Grupo etario` = grupo_etario) %>%
   kable_prec(paste0("Indice de precariedad por género y grupo etario — ", tit_per, " (%)"),
              fuente = nota_indice)
+```
 
+<br>
+
+#### Indice de precariedad por género y nivel educativo
+
+```{r 6J-Género y nivel educativo, echo=FALSE}
 # -----------------------------------------------------------------------------
-# 6I. CRUCE GENERO x NIVEL EDUCATIVO
+# 6J. CRUCE GENERO x NIVEL EDUCATIVO
 # -----------------------------------------------------------------------------
 base_ultimo %>%
   filter(!is.na(genero), !is.na(nivel_educativo), !is.na(indice_precariedad_cat)) %>%

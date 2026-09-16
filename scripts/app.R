@@ -190,7 +190,9 @@ server <- function(input, output, session) {
     rv$proceso        <- processx::process$new(
       r_bin, c("--vanilla", "-e", codigo),
       wd = normalizePath(".."),
-      stdout = "|", stderr = "|", supervise = FALSE
+      stdout = "../log/nuevo_calculo_out.log",
+      stderr = "../log/nuevo_calculo_err.log",
+      supervise = FALSE
     )
     rv$corriendo      <- TRUE
     rv$nombre_actual  <- nombre
@@ -215,7 +217,7 @@ server <- function(input, output, session) {
           showModal(modalDialog(
             title = "Listo ✔",
             size = "s",
-            paste0("Se generó ", rv$nombre_actual, ".html / .docx en /resultados."),
+            paste0("Se generó ", rv$nombre_actual, ".html en /resultados."),
             footer = tagList(
               tags$a(
                 class = "btn btn-primary", target = "_blank",

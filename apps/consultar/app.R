@@ -15,6 +15,7 @@ library(tidyr)
 library(readxl)
 library(ggplot2)
 library(scales)
+library(plotly)
 
 source("../../scripts/Formatos.R")
 
@@ -84,13 +85,13 @@ ui <- fluidPage(
         style = "height:100%;",
         checkboxGroupInput("f_cat_ocup", "Categoría ocupacional:",
                            choices = cat_ocup_valores, selected = cat_ocup_valores),
+        checkboxGroupInput("f_jerarquia", "Jerarquía:",
+                           choices = jerarquia_valores, selected = jerarquia_valores),
         tags$div(
-          style = "max-height:220px; overflow-y:auto; border:1px solid #ddd; padding:6px; border-radius:4px;",
-          checkboxGroupInput("f_ocupacion", "Ocupación (PP04D_COD):",
+          style = "max-height:420px; overflow-y:auto; border:1px solid #ddd; padding:6px; border-radius:4px;",
+          checkboxGroupInput("f_ocupacion", "Ocupación:",
                              choices = ocupacion_valores, selected = ocupacion_valores)
-        ),
-        checkboxGroupInput("f_jerarquia", "Jerarquía (PP04D_COD):",
-                           choices = jerarquia_valores, selected = jerarquia_valores)
+        )
       )
     ),
     
@@ -124,7 +125,7 @@ ui <- fluidPage(
         )
       ),
       
-      plotOutput("grafico_serie", height = "450px"),
+      plotlyOutput("grafico_serie", height = "280px"),
       
       tags$p(textOutput("anios_faltantes"), style = "color:#999; font-size:0.85rem;"),
       
@@ -145,7 +146,7 @@ server <- function(input, output, session) {
     read_csv(
       ruta,
       col_select = c(CAT_OCUP, PP04D_COD, PONDERA, PONDIIO,
-                     precario_contrato_num, precario_jornada_num, precario_ingreso_num),
+                     precario_contrato_num, precario_jornada_num, precario_ingreso_num, num_dimensiones),
       col_types  = cols(CAT_OCUP = col_character(), PP04D_COD = col_character(),
                         .default = col_double())
     ) |>
@@ -180,14 +181,16 @@ server <- function(input, output, session) {
         abs_contrato = sum(PONDERA[precario_contrato_num == 1], na.rm = TRUE),
         abs_jornada  = sum(PONDERA[precario_jornada_num  == 1], na.rm = TRUE),
         abs_ingreso  = sum(PONDIIO[precario_ingreso_num  == 1], na.rm = TRUE),
+        abs_precario = sum(PONDERA[num_dimensiones >= 1], na.rm = TRUE),
         pct_contrato = 100 * abs_contrato / sum(PONDERA, na.rm = TRUE),
         pct_jornada  = 100 * abs_jornada  / sum(PONDERA, na.rm = TRUE),
         pct_ingreso  = 100 * abs_ingreso  / sum(PONDIIO, na.rm = TRUE),
+        pct_precario = 100 * abs_precario / sum(PONDERA, na.rm = TRUE),
         .groups = "drop"
       )
   })
   
-  output$grafico_serie <- renderPlot({
+  output$grafico_serie <- renderPlotly({
     d <- resumen_anual()
     req(nrow(d) > 0)
     
@@ -197,18 +200,24 @@ server <- function(input, output, session) {
       mutate(dimension = recode(dimension,
                                 pct_contrato = "Contrato",
                                 pct_jornada  = "Jornada",
-                                pct_ingreso  = "Ingreso"))
+                                pct_ingreso  = "Ingreso",
+                                pct_precario = "Precarios"))
     
-    ggplot(d_larga, aes(x = anio, y = pct, color = dimension)) +
+    p <- suppressWarnings(
+      ggplot(d_larga, aes(x = anio, y = pct, color = dimension, group = dimension)) +
       geom_line(linewidth = 1) +
-      geom_point(size = 2) +
+      geom_point(aes(text = sprintf("%s\nAño: %d\n%.1f%%", dimension, anio, pct)), size = 2) +
       scale_x_continuous(breaks = anio_dde:anio_ult) +
       scale_color_manual(values = c("Contrato" = "#e74c3c",
                                     "Jornada"  = "#e67e22",
                                     "Ingreso"  = "#2C6E91")) +
       labs(x = NULL, y = "% precario", color = NULL,
            title = sprintf("Precarización laboral — serie T%s (%s-%s)", trimestre, anio_dde, anio_ult)) +
-      theme_minimal(base_size = 13)
+      theme_minimal(base_size = 10)
+    )
+    
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(hoverlabel = list(bgcolor = "white"))
   })
   
   output$tabla_resumen <- renderTable({
@@ -223,7 +232,9 @@ server <- function(input, output, session) {
         `Jornada (casos)`        = fmt_enteros(abs_jornada),
         `Jornada (%)`            = fmt_decimal(pct_jornada),
         `Ingreso (casos)`        = fmt_enteros(abs_ingreso),
-        `Ingreso (%)`            = fmt_decimal(pct_ingreso)
+        `Ingreso (%)`            = fmt_decimal(pct_ingreso),
+        `Precarios (casos)`      = fmt_enteros(abs_precario),
+        `Precarios (%)`          = fmt_decimal(pct_precario)       
       )
   }, align = "c", striped = TRUE, spacing = "s")
   

@@ -2,6 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
-resultados/ 
-log/*.xlsx 
+log/ 
+resultados/
 README.html 
