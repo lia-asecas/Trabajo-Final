@@ -26,9 +26,14 @@ y se desagregan según variables sensibles como Sexo (P02), categoria ocupacion 
 - **/scripts/02_actualizar_indice.Rmd**: es un Markdown que saca un html y un docx con los resultados del procesamiento tomando el período (año y trimestre ingresado por pantalla (el botón *Nuevo Cálculo* habilita un popup */apps/nuevo_calculo/app.R* que permite ingresar año y trimestre). Deja 3 resultados: */resultados/Ind_aaaa_Tt.html .docx y .xlsx*.
 - **/scripts/02_calcular_indice.R**: descaga los microdatos de la EPH, toma lo necesario para el cálculo de */bases/umbrales.xlsx*, calcula los indicadores, guarda las bases resultantes reducidas (*/bases/individual_procesada_aaaa_Tt.csv*) para luego poder consultar sobre el .RData guardado, y agrega una línea en */log/ejecucion.log*).
 - **/scripts/Formatos.R** y **funciones_indice.R**: contiene los formatos generales y las funciones necesarias en el script de cálculo, respectivamente.
+- **/apps/nuevo_calculo/app.R**: es una shiny que habilita el ingreso de los parametros para hacer ejecutar el cálculo (año y trimestre - por el momento solo va a funcionar para **2026-1** o **2025-4**).
+- **/apps/consultar/app.R**: una shiny que habilita una pantalla al usuario con un gráfico de líneas (los indicadores a través de los años en el mismo trimestre) y una tabla con los valores absolutos y % que varían según los filtros (sobre CAT_OCUP, JErarquía y Ocupación PP04D_COD) que puede activar el usuario para ver los cambios en 
+los valores del indicador en la serie.
 
 ### 4. Dashboard: 
-Una shiny para consultar, filtrar y ver cómo cambian los indicadores en forma interactiva está programada en */apps/consultar/app.R*. En la pantalla se puede filtrar la categoría ocupacional, la ocupación y la jerarquía en la cual se emplean los ocupados.
+Una shiny para ver los resultados de la última ejecución y a la vez consultar, filtrar y ver cómo cambian los indicadores en forma interactiva.
+Está programada en */apps/consultar/app.R*. 
+Se puede filtrar la categoría ocupacional, la jerarquía en la cual se desempeñan los ocupados, y la ocupación.
    
 
 <br><br>
@@ -43,21 +48,32 @@ Tomando como referencia informes nacionales e internacionales basados en estadí
 *	Jornada de trabajo
 *	Condiciones de contratación
 
+
 ### 2. Universo de análisis
-El universo de análisis del índice está compuesto por los ocupados relevados por la EPH-INDEC, con las siguientes exclusiones:
+El universo de análisis del índice está compuesto por los ocupados relevados por la EPH-INDEC de los 31 aglomerados urbanos.
 
-*	Patrones (CAT_OCUP = 1).
-*	Fuerzas de seguridad y defensa (PP04D_COD con prefijo 48 o 49)
-
-El universo final comprende, entonces, a los asalariados, cuentapropistas y trabajadores familiares sin remuneración de los 31 aglomerados urbanos excluyendo a los sectores mencionados.
+*Nota: el Indicador que publicamos en La Izquierda Diario excluye de la muestra a los patrones (CAT_OCUP=1) y quienes se desempeñan en*
+*las fuerzas represivas (PP04D_COD que comiencen con 48 o 49), pero para este ejercicio vamos a utilizar a todos los ocupados,*
+*justamente para ver en la pantalla de consulta con filtros, cómo cambian los indicadores excluyendo a éstos ocupados*
+*como así también otros utilizando el criterio de la jerarquía en la que desempeña la tarea (el 3 dígito del PP04D_COD).*
 
 
 ### 3. Dimensiones
 
+
 #### **Dimensión 1**: Precarización por ingresos
 
 Definición: se considera precario por ingresos a todo trabajador cuyo ingreso en la ocupación principal es inferior al valor de la Canasta Básica Total (CBT) para un adulto equivalente.
+
 **Umbral utilizado**: se utiliza el valor mensual de la CBT para un adulto equivalente publicado por la Junta Interna ATE-INDEC, correspondiente al período de referencia de cada trimestre analizado.
+(el excel con los datos de los umbrales se encuentra en /bases/umbrales.xlsx y por el momento solo tiene cargado el trimestre 4 para los años 2017-2025 y el trimestre 1 para 2017-2026)
+
+Se utiliza este umbral pues el cálculo de las canastas del INDEC están basadas en Encuestas de Gastos muy antiguas.
+
+*Nota: el 25% de los ocupados encuestados elige no contestar sobre su ingreso (P21, ingreso de la ocupación principal), por lo cual,*
+*la EPH recalcula en un ponderador distinto (PONDIIO) utilizado para los cálculos sobre ingresos. Por lo cual, hay un 25% de lo ocupados*
+*sobre los cuales no se podrá calcular el Nivel de precariedad pues no tiene indicador de precariedad por ingreso.*
+
 
 #### **Dimensión 2**: Precarización por jornada laboral
 Definición: se considera precario por jornada laboral a quien trabaja fuera de los parámetros de la jornada laboral legal máxima vigente en Argentina o quien, trabajando a tiempo parcial, demanda más horas de trabajo.
@@ -79,13 +95,21 @@ Se incluyen las siguientes situaciones:
 * Trabajadores familiares sin remuneración (CAT_OCUP=4)
 * Cuentapropistas no profesionales (CAT_OCUP=2 & CALIFICACION ≠ 'Profesionales')
 
+
 ### 4.- Construcción del índice compuesto
-Cada trabajador del universo recibe un valor 0 o 1 en cada dimensión. La suma de las tres dimensiones compone el índice, con valores posibles de 0 a 3, que se traducen en cuatro niveles:
+Cada trabajador del universo recibe un valor 0 o 1 en cada dimensión. La suma de las tres dimensiones compone el índice, con valores posibles de 0 a 3.
+
+Estos serían los cuatro niveles:
 
 * 0 -> No alcanzados por el índice
 * 1 -> Baja
 * 2 -> Media
 * 3 -> Alta
+
+*Nota: Hay que tener en cuenta que cuantificar según su nivel es utilizando el ponderador PONDERA que para los ocupados que no informan su ingreso está*
+*vacío y su ingreso registra P21=-9. En esos casos, el nivel de las dimensiones está dado por dimensión jornada (0 o 1) + dimensión contrato (0 o 1) y su rango* 
+*será entonces entre 0 y 2. Por lo cual ese 25% de los ocupados nunca pueden alcanzar la dimensión Alta como así tampoco Ninguna (pues no hay información sobre ingresos).*
+
 
 ### 5.- Fuente de datos
 Los microdatos utilizados provienen de la Encuesta Permanente de Hogares (EPH) del Instituto Nacional de Estadística y Censos (INDEC).
