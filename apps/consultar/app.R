@@ -182,6 +182,7 @@ server <- function(input, output, session) {
         abs_jornada  = sum(PONDERA[precario_jornada_num  == 1], na.rm = TRUE),
         abs_ingreso  = sum(PONDIIO[precario_ingreso_num  == 1], na.rm = TRUE),
         abs_precario = sum(PONDERA[num_dimensiones >= 1], na.rm = TRUE),
+        total_pondera = sum(PONDERA, na.rm = TRUE),
         pct_contrato = 100 * abs_contrato / sum(PONDERA, na.rm = TRUE),
         pct_jornada  = 100 * abs_jornada  / sum(PONDERA, na.rm = TRUE),
         pct_ingreso  = 100 * abs_ingreso  / sum(PONDIIO, na.rm = TRUE),
@@ -223,8 +224,9 @@ server <- function(input, output, session) {
   output$tabla_resumen <- renderTable({
     d <- resumen_anual()
     req(nrow(d) > 0)
-    
+
     d |>
+      arrange(desc(anio)) |>
       transmute(
         `Año`                    = anio,
         `Contrato (casos)`       = fmt_enteros(abs_contrato),
@@ -234,7 +236,8 @@ server <- function(input, output, session) {
         `Ingreso (casos)`        = fmt_enteros(abs_ingreso),
         `Ingreso (%)`            = fmt_decimal(pct_ingreso),
         `Precarios (casos)`      = fmt_enteros(abs_precario),
-        `Precarios (%)`          = fmt_decimal(pct_precario)       
+        `Precarios (%)`          = fmt_decimal(pct_precario),
+        `Total (casos)`          = fmt_enteros(total_pondera)
       )
   }, align = "c", striped = TRUE, spacing = "s")
   
