@@ -52,3 +52,10 @@ fmt_decimal <- function(x) {
 fmt_mixto <- function(x) {
   ifelse(x == round(x), fmt_enteros(x), fmt_decimal(x))
 }
+
+fmt_pesos <- function(x) {
+  paste0("$", number(x,
+                      big.mark = ".",
+                      decimal.mark = ",",
+                      accuracy = 1))
+}
